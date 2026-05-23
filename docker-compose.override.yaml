@@ -1,0 +1,11 @@
+# Local overrides: avoid conflicts with other services on this machine
+services:
+  postgres:
+    ports:
+      - "5433:5432"
+  redis:
+    ports:
+      - "6380:6379"
+  api:
+    ports:
+      - "8080:8000"

@@ -1,0 +1,58 @@
+# AgentOS Docker Compose — full stack
+# Usage: docker-compose up -d
+
+services:
+  # PostgreSQL database (with pgvector)
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: agentos
+      POSTGRES_PASSWORD: agentos
+      POSTGRES_DB: agentos
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis (optional cache layer)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # AgentOS API server
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      AGENTOS_DATABASE__URL: "postgresql+asyncpg://agentos:agentos@postgres:5432/agentos"
+      # Providers (set your API keys)
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Security
+      AGENTOS_SECURITY__AUTH_ENABLED: "false"
+      # Observability
+      AGENTOS_OBSERVABILITY__LOG_LEVEL: "INFO"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
