@@ -1,0 +1,79 @@
+name: Scheduled Health Check
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Every 30 minutes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-check:
+    name: Main Branch Health Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Check latest workflow runs
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ci.yml',
+              branch: 'main',
+              per_page: 1
+            });
+
+            if (runs.workflow_runs.length === 0) {
+              console.log('No runs found');
+              return;
+            }
+
+            const latestRun = runs.workflow_runs[0];
+            console.log(`Latest run: ${latestRun.name} - Status: ${latestRun.status} - Conclusion: ${latestRun.conclusion}`);
+
+            if (latestRun.conclusion === 'failure') {
+              core.setOutput('failed', 'true');
+              core.setOutput('run_url', latestRun.html_url);
+            }
+
+      - name: Create issue if CI failed
+        if: steps.check.outputs.failed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-failure'
+            });
+
+            // Check if issue already exists
+            const existingIssue = issues.find(issue =>
+              issue.title.includes('CI Pipeline Failed')
+            );
+
+            if (!existingIssue) {
+              github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '🚨 CI Pipeline Failed on main',
+                body: `The latest CI pipeline run failed on the main branch.\n\n[View Details](${{ steps.check.outputs.run_url }})`,
+                labels: ['ci-failure', 'urgent'],
+                assignees: [] // Add maintainers here if needed
+              });
+            }
+
+      - name: Log health status
+        run: |
+          echo "✅ Health check complete"
+          echo "Repository: ${{ github.repository }}"
+          echo "Time: $(date -u)"

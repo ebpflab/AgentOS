@@ -1,0 +1,78 @@
+name: PR Auto-Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  pr-labeler:
+    name: Auto-label PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Analyze PR changes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: diff } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              mediaType: { format: 'diff' }
+            });
+
+            const labels = [];
+            if (diff.includes('src/')) labels.push('backend');
+            if (diff.includes('web/')) labels.push('frontend');
+            if (diff.includes('tests/')) labels.push('tests');
+            if (diff.includes('.github/')) labels.push('ci-cd');
+            if (diff.includes('migrations/')) labels.push('database');
+
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labels
+              });
+            }
+
+  pr-size:
+    name: Check PR Size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Comment if PR too large
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            if (pr.additions + pr.deletions > 500) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '⚠️ **Large PR Detected**\n\nThis PR has **' + (pr.additions + pr.deletions) + '** changes. Consider breaking it into smaller, focused PRs for easier review.'
+              });
+            }
+
+  draft-pr-check:
+    name: Skip Draft PR CI
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR is ready for review
+        run: echo "✅ PR is ready for CI checks"
