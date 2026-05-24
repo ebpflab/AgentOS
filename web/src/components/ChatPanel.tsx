@@ -5,12 +5,47 @@ import { useTranslation } from '../i18n'
 
 interface Message { role: 'user' | 'agent'; content: string; timestamp: Date }
 
-export default function ChatPanel({ agentId, agentName }: { agentId: string; agentName: string }) {
+export default function ChatPanel({
+  agentId, agentName, sessionId: initialSessionId, onSessionChange,
+}: {
+  agentId: string
+  agentName: string
+  sessionId: string | null
+  onSessionChange: (sid: string) => void
+}) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(initialSessionId)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Load conversation history when switching back to an agent with a known session
+  useEffect(() => {
+    setSessionId(initialSessionId)
+    if (initialSessionId) {
+      loadHistory(initialSessionId)
+    } else {
+      setMessages([])
+    }
+  }, [agentId, initialSessionId])
+
+  async function loadHistory(sid: string) {
+    try {
+      const data = await agentsApi.sessionHistory(sid)
+      if (data.messages?.length) {
+        setMessages(data.messages.map((m: { role: string; content: string }) => ({
+          role: m.role as 'user' | 'agent',
+          content: m.content,
+          timestamp: new Date(),
+        })))
+      } else {
+        setMessages([])
+      }
+    } catch {
+      setMessages([])
+    }
+  }
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
@@ -20,7 +55,11 @@ export default function ChatPanel({ agentId, agentName }: { agentId: string; age
     setMessages(prev => [...prev, userMsg])
     setInput(''); setLoading(true)
     try {
-      const res = await agentsApi.run(agentId, input)
+      const res = await agentsApi.run(agentId, input, sessionId)
+      if (res.session_id) {
+        setSessionId(res.session_id)
+        onSessionChange(res.session_id)
+      }
       setMessages(prev => [...prev, { role: 'agent', content: res.response, timestamp: new Date() }])
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : t('chat.errorFallback')
@@ -33,6 +72,7 @@ export default function ChatPanel({ agentId, agentName }: { agentId: string; age
       <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
         <Bot className="w-5 h-5 text-blue-600" />
         <span className="font-medium text-sm">{t('chat.with', agentName)}</span>
+        {sessionId && <span className="text-xs text-gray-400 ml-auto">mem</span>}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

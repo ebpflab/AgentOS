@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bot, Plus, X } from 'lucide-react'
-import { agentsApi } from '../lib/api'
-import type { Agent, AgentCreateRequest } from '../lib/api'
+import { agentsApi, adminApi } from '../lib/api'
+import type { Agent, AgentCreateRequest, ProviderInfo } from '../lib/api'
 import AgentCard from '../components/AgentCard'
 import ChatPanel from '../components/ChatPanel'
 import { useTranslation } from '../i18n'
@@ -12,6 +12,8 @@ export default function Agents() {
   const [showCreate, setShowCreate] = useState(false)
   const [chatAgent, setChatAgent] = useState<Agent | null>(null)
   const [loading, setLoading] = useState(true)
+  // Persist session IDs per agent so switching back restores conversation context
+  const [sessionMap, setSessionMap] = useState<Record<string, string>>({})
 
   async function loadAgents() {
     try { const data = await agentsApi.list(); setAgents(data) } catch { /* API not running */ }
@@ -55,7 +57,12 @@ export default function Agents() {
 
         <div>
           {chatAgent ? (
-            <ChatPanel agentId={chatAgent.agent_id} agentName={chatAgent.name} />
+            <ChatPanel
+              agentId={chatAgent.agent_id}
+              agentName={chatAgent.name}
+              sessionId={sessionMap[chatAgent.agent_id] || null}
+              onSessionChange={(sid: string) => setSessionMap(prev => ({ ...prev, [chatAgent.agent_id]: sid }))}
+            />
           ) : (
             <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-400 h-[500px] flex items-center justify-center">
               <div>
@@ -74,12 +81,35 @@ export default function Agents() {
 
 function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { t } = useTranslation()
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [form, setForm] = useState<AgentCreateRequest>({
     name: '', instructions: 'You are a helpful assistant.', provider: 'openai', model: 'gpt-4.1', capabilities: [],
   })
   const [capsInput, setCapsInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // Fetch provider model lists from admin API
+  useEffect(() => {
+    adminApi.providers().then(data => {
+      setProviders(data)
+      // Set default model for initial provider
+      const p = data.find(x => x.name === 'openai')
+      if (p) setForm(f => f.provider === 'openai' && f.model === 'gpt-4.1' ? { ...f, model: p.default_model } : f)
+    }).catch(() => {})
+  }, [])
+
+  // Global Escape key listener
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
+  function handleProviderChange(providerName: string) {
+    const p = providers.find(x => x.name === providerName)
+    setForm(f => ({ ...f, provider: providerName, model: p?.default_model || '' }))
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
@@ -92,8 +122,9 @@ function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{t('agents.dialogTitle')}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
@@ -113,17 +144,35 @@ function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCrea
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('agents.fieldProvider')}</label>
-              <select value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="ollama">Ollama</option>
+              <select value={form.provider} onChange={e => handleProviderChange(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+                {providers.length > 0 ? providers.map(p => (
+                  <option key={p.name} value={p.name} disabled={!p.enabled}>
+                    {p.name.charAt(0).toUpperCase() + p.name.slice(1)}
+                    {!p.enabled ? ` (${t('admin.providerDisabled')})` : ''}
+                  </option>
+                )) : (
+                  <>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="ollama">Ollama</option>
+                  </>
+                )}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('agents.fieldModel')}</label>
-              <input value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="gpt-4.1" />
+              {providers.length > 0 ? (
+                <select value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+                  {(providers.find(p => p.name === form.provider)?.models || []).map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              ) : (
+                <input value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="gpt-4.1" />
+              )}
             </div>
           </div>
           <div>

@@ -162,7 +162,7 @@ async def run_agent(
     user: UserInfo = Depends(require_permission(Permission.AGENT_RUN)),
     locale: str = Depends(get_locale),
 ):
-    """Run an agent with a message."""
+    """Run an agent with a message. Supports multi-turn conversation via session_id."""
     runtime = get_runtime()
     meta = runtime.registry.get(agent_id)
     if meta is None or meta.tenant_id != user.tenant_id:
@@ -172,8 +172,34 @@ async def run_agent(
     if instance is None:
         raise HTTPException(status_code=400, detail=tr("agent.no_instance", locale))
 
+    # MAF session management — persists conversation context in memory
+    # so the agent remembers previous turns.
+    _sessions: dict[str, Any] = runtime.registry._sessions
+
+    session = None
+    if req.session_id and req.session_id in _sessions:
+        session = _sessions[req.session_id]
+
+    if session is None:
+        session = instance.create_session()
+        sid = getattr(session, "session_id", None)
+        if sid:
+            _sessions[sid] = session
+            req.session_id = sid
+
     try:
-        result = await instance.run(req.message)
-        return {"response": str(result), "agent_id": agent_id}
+        # Inject shared workflow memory into the message if available
+        enriched_message = req.message
+        shared_ns = req.session_id or f"agent:{agent_id}"
+        ctx = runtime.shared_memory.inject_into_prompt(shared_ns, req.message)
+        if ctx != req.message:
+            enriched_message = ctx
+
+        result = await instance.run(enriched_message, session=session)
+        return {
+            "response": str(result),
+            "agent_id": agent_id,
+            "session_id": getattr(session, "session_id", None),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=tr("common.internal_error", locale, str(e)))

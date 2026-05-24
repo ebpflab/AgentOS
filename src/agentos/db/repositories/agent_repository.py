@@ -122,6 +122,7 @@ class AgentRepository:
             agent_id=model.id,
             name=model.name,
             description=model.description,
+            instructions=model.instructions,
             capabilities=model.capabilities or [],
             provider=model.provider,
             model=model.model,

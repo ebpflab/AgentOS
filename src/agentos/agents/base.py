@@ -68,6 +68,7 @@ class ManagedAgent:
             agent_id=self.agent_id,
             name=self.name,
             description=self.instructions[:200] if self.instructions else "",
+            instructions=self.instructions,
             capabilities=self.capabilities,
             provider=self.provider,
             model=self.model,

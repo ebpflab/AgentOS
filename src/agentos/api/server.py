@@ -13,7 +13,9 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentos.config import load_config
 from agentos.kernel.runtime import AgentOSRuntime
@@ -87,10 +89,18 @@ def create_app() -> FastAPI:
             "providers": runtime.providers.list_providers(),
         }
 
-    # Serve React web UI (if built)
+    # Serve React web UI (if built) — SPA fallback to index.html
     web_dist = Path(__file__).parent.parent.parent.parent / "web" / "dist"
     if web_dist.is_dir():
-        app.mount("/", StaticFiles(directory=str(web_dist), html=True), name="web-ui")
+        class SPAStaticFiles(StaticFiles):
+            """StaticFiles subclass that falls back to index.html for SPA routing."""
+            async def get_response(self, path: str, scope):
+                try:
+                    return await super().get_response(path, scope)
+                except (StarletteHTTPException,):
+                    return await super().get_response("index.html", scope)
+
+        app.mount("/", SPAStaticFiles(directory=str(web_dist), html=True), name="web-ui")
         logger.info("Serving web UI from %s", web_dist)
 
     return app

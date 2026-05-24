@@ -55,6 +55,25 @@ class ProvidersConfig(BaseModel):
     ollama: ProviderItemConfig = Field(default_factory=lambda: ProviderItemConfig(
         enabled=False, base_url="http://localhost:11434", default_model="llama3.2"
     ))
+    # Domestic Chinese LLM providers (all OpenAI-compatible)
+    deepseek: ProviderItemConfig = Field(default_factory=lambda: ProviderItemConfig(
+        enabled=False, base_url="https://api.deepseek.com/v1", default_model="deepseek-chat",
+    ))
+    qwen: ProviderItemConfig = Field(default_factory=lambda: ProviderItemConfig(
+        enabled=False, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        default_model="qwen-plus",
+    ))
+    zhipu: ProviderItemConfig = Field(default_factory=lambda: ProviderItemConfig(
+        enabled=False, base_url="https://open.bigmodel.cn/api/paas/v4",
+        default_model="glm-4-flash",
+    ))
+    moonshot: ProviderItemConfig = Field(default_factory=lambda: ProviderItemConfig(
+        enabled=False, base_url="https://api.moonshot.cn/v1", default_model="moonshot-v1-8k",
+    ))
+    doubao: ProviderItemConfig = Field(default_factory=lambda: ProviderItemConfig(
+        enabled=False, base_url="https://ark.cn-beijing.volces.com/api/v3",
+        default_model="doubao-1.5-pro-32k",
+    ))
 
 
 class DatabaseConfig(BaseModel):

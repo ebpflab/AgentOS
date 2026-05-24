@@ -36,6 +36,7 @@ class AgentMetadata:
     agent_id: str
     name: str
     description: str = ""
+    instructions: str = ""
     capabilities: list[str] = field(default_factory=list)
     provider: str = ""
     model: str = ""
@@ -72,6 +73,7 @@ class AgentRegistry:
         self._max_agents = max_agents
         self._agents: dict[str, AgentMetadata] = {}
         self._instances: dict[str, Any] = {}  # agent_id -> MAF Agent instance
+        self._sessions: dict[str, Any] = {}   # session_id -> MAF AgentSession
         self._repository = repository
 
     def register(self, metadata: AgentMetadata, instance: Any = None) -> None:

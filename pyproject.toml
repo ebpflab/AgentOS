@@ -9,14 +9,14 @@ description = "Enterprise Agent Operating System built on Microsoft Agent Framew
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
-    # MAF Core
+    # MAF Core — stable 1.6.0
     "agent-framework>=1.6.0",
-    "agent-framework-declarative>=1.6.0",
-    "agent-framework-a2a>=1.6.0",
-    # MAF Providers (multi-provider from day 1)
+    "agent-framework-declarative>=1.0.0b260521",  # pre-release only
+    "agent-framework-a2a>=1.0.0b260521",          # pre-release only
+    # MAF Providers
     "agent-framework-openai>=1.6.0",
-    "agent-framework-anthropic>=1.6.0",
-    "agent-framework-ollama>=1.6.0",
+    "agent-framework-anthropic>=1.0.0b260521",    # pre-release only
+    "agent-framework-ollama>=1.0.0b260521",       # pre-release only
     # API Framework
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
@@ -49,7 +49,7 @@ dev = [
     "ruff>=0.8",
 ]
 devui = [
-    "agent-framework-devui>=1.6.0",
+    "agent-framework-devui>=1.0.0b260521",
 ]
 
 [project.scripts]

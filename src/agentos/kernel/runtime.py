@@ -13,6 +13,7 @@ from agentos.config import AgentOSConfig, load_config
 from agentos.kernel.events import EventBus
 from agentos.kernel.lifecycle import LifecycleManager
 from agentos.kernel.registry import AgentRegistry
+from agentos.memory.shared import SharedMemory
 from agentos.security.audit import AuditLogger
 
 if TYPE_CHECKING:
@@ -50,6 +51,7 @@ class AgentOSRuntime:
         self._message_bus: MessageBus | None = None
         self._supervisor: SupervisorAgent | None = None
         self._factory: AgentFactory | None = None
+        self.shared_memory = SharedMemory()
         self._db_engine: AsyncEngine | None = None
         self._agent_repo: AgentRepository | None = None
         self._audit_repo: AuditRepository | None = None
@@ -124,7 +126,7 @@ class AgentOSRuntime:
             repository=self._agent_repo,
         )
         # LifecycleManager held a reference to the old registry; rebind it.
-        self.lifecycle = LifecycleManager(self.registry, self.event_bus)
+        self.lifecycle = LifecycleManager(self.registry, self.event_bus, provider_manager=self._provider_manager)
         self.audit_logger = AuditLogger(repository=self._audit_repo)
 
         # Restore agents from previous runs.
@@ -134,7 +136,7 @@ class AgentOSRuntime:
             logger.error("DB query failed during restore_from_db: %s", exc)
             # Reset to in-memory mode so the runtime can still start.
             self.registry = AgentRegistry(max_agents=self.config.registry.max_agents)
-            self.lifecycle = LifecycleManager(self.registry, self.event_bus)
+            self.lifecycle = LifecycleManager(self.registry, self.event_bus, provider_manager=self._provider_manager)
             self.audit_logger = AuditLogger()
             self._agent_repo = None
             self._audit_repo = None
@@ -176,6 +178,14 @@ class AgentOSRuntime:
         self._provider_manager = ProviderManager(self.config)
         self._provider_manager.initialize()
 
+        # Wire provider manager into lifecycle so start_agent can create
+        # MAF agent instances if none exist (e.g. after restart).
+        self.lifecycle._provider_manager = self._provider_manager
+
+        # Reset agents left in RUNNING/STARTING state from a previous process.
+        # These have no MAF instance so chat would 400 with agent.no_instance.
+        self._cleanup_stale_agent_states()
+
         # Initialize message bus
         from agentos.communication.bus import MessageBus
         self._message_bus = MessageBus(self.event_bus)
@@ -203,6 +213,29 @@ class AgentOSRuntime:
             self.config.registry.max_agents,
             "enabled" if self._agent_repo else "memory-only",
         )
+
+    def _cleanup_stale_agent_states(self) -> None:
+        """Reset agents left in active states from a previous process.
+
+        After a restart, MAF instance references are gone.  Agents that
+        were RUNNING/STARTING/STOPPING have no backing instance, so
+        ``/run`` would 400 with ``agent.no_instance``.  Reset them to
+        CREATED so the user can simply click Start again.
+        """
+        from agentos.kernel.registry import AgentStatus
+
+        stale_statuses = {AgentStatus.RUNNING, AgentStatus.STARTING, AgentStatus.STOPPING}
+        cleaned = 0
+        for agent_meta in self.registry.list_agents():
+            if agent_meta.status in stale_statuses:
+                self.registry.update_status(agent_meta.agent_id, AgentStatus.CREATED)
+                cleaned += 1
+        if cleaned:
+            logger.info(
+                "Cleaned up %d stale agent state(s) from previous run — "
+                "set to CREATED so Start will create a fresh instance.",
+                cleaned,
+            )
 
     async def shutdown(self) -> None:
         """Gracefully shut down the runtime and all subsystems."""
